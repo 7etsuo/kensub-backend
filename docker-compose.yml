@@ -1,0 +1,107 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: videodb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d videodb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  # One-shot service for Alembic migrations
+  migrate:
+    build: .
+    command: alembic upgrade head
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://user:password@postgres/videodb
+      - REDIS_URL=redis://redis:6379/0
+      - GROK_API_KEY=${GROK_API_KEY}
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - .:/app
+    # Migrate usually doesn't need GPU, so we won't request it here.
+
+  celery_worker:
+    build: .
+    # If you want GPU for Celery tasks, add GPU constraints
+    # so it can run whisper on GPU. Example:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: celery -A app.tasks worker --loglevel=info
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql://user:password@postgres/videodb
+      - REDIS_URL=redis://redis:6379/0
+      - GROK_API_KEY=${GROK_API_KEY}
+      - PYTHONUNBUFFERED=1
+      - NVIDIA_VISIBLE_DEVICES=all
+    volumes:
+      - .:/app
+      - ./uploads:/app/uploads
+      - ./processed:/app/processed
+
+  api:
+    build: .
+    # If you want the API container to be able to do GPU
+    # tasks as well, add a GPU reservation or runtime here:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      - DATABASE_URL=postgresql://user:password@postgres/videodb
+      - REDIS_URL=redis://redis:6379/0
+      - GROK_API_KEY=${GROK_API_KEY}
+      - PYTHONUNBUFFERED=1
+      - NVIDIA_VISIBLE_DEVICES=all
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - ./uploads:/app/uploads
+      - ./processed:/app/processed
+
+volumes:
+  postgres_data:

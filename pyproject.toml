@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "grok_lecture_clipper"
+version = "0.1.0"
+description = "A tool for video processing and segment clipping."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+  { name="Your Name", email="you@example.com" }
+]
+dependencies = []
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+# Looks for Python packages (i.e., directories with __init__.py).
+# We assume `app/` is your main package directory.
+where = ["."]
+include = ["app"]
+
